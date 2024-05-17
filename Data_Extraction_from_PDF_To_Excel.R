@@ -126,3 +126,6 @@ dta$Source_PDF <- str_extract(dta$Source_PDF, "\\d{2}[a-z]{2}%20\\w+,%20\\d{4}")
 # Remove "%20" and convert the date format
 dta$Source_PDF <- gsub("%20", " ", dta$Source_PDF)
 head(dta)
+
+# save csv file
+write.csv(dta, "revised_data.csv")
