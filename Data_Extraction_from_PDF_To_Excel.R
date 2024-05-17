@@ -129,3 +129,8 @@ head(dta)
 
 # save csv file
 write.csv(dta, "revised_data.csv")
+
+
+##Proceed to correct a few other errors in excel.
+#For example some prices from 20th-27th July 2022 were in separate pdfs
+##Be sure to merge them.
