@@ -1,0 +1,398 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE) 
+```
+
+# Introduction
+
+We are interested in estimating the price of maize grain across space, on the basis of prices as observed at some market locations. Here we explore methods to model maize prices, using monthly data from across Ethiopia over the period 2014-2019. 
+
+
+
+# Basic preperation
+
+## Get the data
+
+```{r}
+setwd("C:/PROJECTS/ET_price_predictions")
+
+prices <- read.csv("ETH_maizeprices.csv")
+dim(prices)
+head(prices)
+table(prices$market)
+```
+
+Set local path for geodata.
+
+```{r}
+library(geodata) 
+geodata_path("C:/data/geodata")
+```
+
+
+The values we get are not numbers.
+
+```{r}
+sapply(prices, class)
+```
+
+Let's see if we can make numbers out of the character variables.
+
+```{r}
+test <- as.numeric(prices$maize_price)
+table(prices$maize_price[is.na(test)])
+```
+
+We see that missing values are encoded as ".", but are otherwise okay. 
+
+```{r}
+test <- as.numeric(prices$maize_price)
+table(prices$maize_price[is.na(test)])
+# we see that missing values are shown as "." 
+prices$maize_price <- test
+
+test <- as.numeric(prices$longitude)
+table(prices$longitude[is.na(test)])
+prices$longitude <- test
+
+test <- as.numeric(prices$latitude)
+table(prices$latitude[is.na(test)])
+prices$latitude <- test
+```
+
+
+## Coordinates
+
+There are locations with missing coordinates.
+
+```{r}
+u <- unique(prices[is.na(test), c("region", "market")])
+u
+```
+
+You can use Google to find coordinates of the location, or its administrative area (Woreda)
+
+```{r}
+library(terra)
+# eth1 <- geodata::gadm("ETH", level=1)
+# eth2 <- geodata::gadm("ETH", level=2)
+# eth3 <- geodata::gadm("ETH", level=3)
+
+eth1 <- readRDS("C:/DATA/geodata/gadm/gadm41_ETH_1_pk.rds")
+eth2 <- readRDS("C:/DATA/geodata/gadm/gadm41_ETH_2_pk.rds")
+eth3 <- readRDS("C:/DATA/geodata/gadm/gadm41_ETH_3_pk.rds")
+
+geo <- crds(centroids(eth3[eth3$NAME_3=="Abobo"]))
+prices[prices$market=="shebo- kire", c("longitude", "latitude")] <- geo 
+geo <- crds(centroids(eth3[eth3$NAME_3=="Shay Bench"]))
+prices[prices$market=="shewa- bench", c("longitude", "latitude")] <- geo 
+prices <- prices[!is.na(prices$maize_price), ]
+```
+
+
+Remove the markets with missing coordinates:
+
+```{r}
+prices <- na.omit(prices)
+plot(eth2)
+points(prices[, c("longitude", "latitude")], col="Red", pch=20)
+```
+
+We can add dates bu using the year and the month names
+
+```{r}
+prices$mnt <- match(prices$month, tolower(month.name))
+prices$date <- as.Date(paste0(prices$year, "-", prices$mnt, "-15"))
+head(prices)
+```
+
+
+## Temporal patterns
+
+Let's have a look at the price variation over time. A quick way to do that is to compute the mean value across locations, for each date.
+
+```{r}
+a <- aggregate(prices[,"maize_price", drop=FALSE], prices[,"date", drop=FALSE], mean, na.rm=TRUE)
+plot(a)
+lines(a)
+```
+
+You can see an annual pattern, with prices peaking in July-October, but there is also strong variation between years. We need to take these things into account when interpolating. 
+
+One approach would be to decompose the time-series into a trend, seasonal variation, and noise. 
+
+We first reshape the price data to the wide format, so that each market has a row, and such that we get missing values for months for which prices were not reported.
+
+```{r, echo=TRUE}
+
+pp <- prices[, c("market", "maize_price", "date", "longitude", "latitude")]
+pp <- pp[order(pp$date), ]
+pw <- reshape(pp,  timevar = "date",  idvar = c("market", "longitude", "latitude"), direction = "wide")
+colnames(pw) <- gsub("maize_price.", "", colnames(pw))
+pw[1:4, 1:6]
+
+# checking that the columns in the correct order
+all(as.Date(gsub("maize_price.", "", colnames(pw) )[-c(1:3)] )  |> order() == 1:69)
+
+# we need a matrix of price values
+markets <- pw[,1:3]
+pm <- as.matrix(pw[,-c(1:3)])
+rownames(pm) <- markets[,1]
+```
+
+
+Now we can have a look at the time series for a single site
+
+```{r}
+a <- ts(pm[1, ], start=c(2015,1), end=c(2018,12), frequency=12)
+dc <- decompose(a)  
+plot(dc) 
+dc$seasonal[1:12]
+```
+
+
+We compute the seasonal component for all markets
+
+```{r}
+fseasonal <- function(x) {
+  notna <- !is.na(x)
+  if (sum(notna) < 24) return(rep(NA, 12))
+  notna <- which(notna)
+
+  start <- notna[1]
+  s <- names(start)
+  syr <- as.integer(substr(s, 1, 4))
+  smth <-  as.integer(substr(s, 6, 7))
+
+  end <- notna[length(notna)]
+  e <- names(end)
+  eyr <- as.integer(substr(e, 1, 4))
+  emth <-  as.integer(substr(e, 6, 7))
+  
+  x <- x[start:end]
+  a = ts(x, start=c(syr, smth), end=c(eyr, emth), frequency=12)
+  a = zoo::na.StructTS(a)
+  dc <- decompose(a)  
+  dc$seasonal[1:12]
+}
+
+# for testing
+#out <- matrix(nrow=nrow(pm), ncol=12)
+#for (i in 1:nrow(pm)) out[i, ] = fseasonal(pm[i,])
+
+out <- apply(pm, 1, fseasonal)
+# apply transposes matrices 
+dim(out)
+out <- t(out)
+```
+
+Link the seasonal data back to the coordinates, and remove the missing cases
+
+```{r}
+s <- cbind(markets, out)
+head(s)
+```
+
+National average seasonal trend
+
+```{r}
+na <- colMeans(out, na.rm=TRUE)
+plot(na); lines(na)
+```
+
+We now have the seasonal variation. But we also need the spatial variation. We can express the price relative to the price in Addis Ababa.
+
+```{r}
+paddis <- pm[markets$market=="addis ababa", ]
+# relative price for a location for each month
+m <- pm / paddis
+# relative price for a location
+m <- rowMeans(m, na.rm=TRUE)
+p <- cbind(s, spatial=m)
+p <- na.omit(p)
+```
+
+
+## Interpolate 
+
+First set up a raster to use. We use the extent of Ethiopia 
+
+```{r}
+eth_extent <- ext(eth1) |> floor()
+r <- crop(rast(res=1/12), eth_extent)
+```
+
+Spatial price variation with TPS
+
+```{r}
+library(fields) 
+xy <- as.matrix(p[,c("longitude", "latitude")])
+tps <- Tps(xy, p$spatial)
+sp <- interpolate(r, tps)
+sp <- mask(sp, eth1)
+plot(sp)
+lines(eth1)
+```
+
+
+Or with inverse distance weighting
+
+```{r}
+xyz <- cbind(xy, p$spatial)
+sp2 <- interpIDW(r, xyz, 2)
+sp2 <- mask(sp2, eth1)
+plot(sp2)
+lines(eth1)
+```
+
+
+Or with randomforest
+
+```{r}
+library(randomForest) 
+rf <- randomForest(spatial ~ longitude + latitude, data=p)
+sp3 <- interpolate(r, rf, xyNames=c("longitude", "latitude"))
+sp3 <- mask(sp3, eth1)
+plot(sp3)
+lines(eth1)
+```
+
+
+You can use co-variates 
+
+
+```{r}
+library(terra)
+# travel <- geodata::travel_time(to="city", size=5, up=TRUE) 
+#clm <- geodata::worldclim_country("ETH", "bio")
+# area <- geodata::crop_spam("maize", "area", africa=TRUE)
+# yield <- geodata::crop_spam("maize", "yield", africa=TRUE)
+
+travel <- rast("C:/DATA/geodata/travel/travel_time_to_cities_u5.tif")
+clm    <- rast("C:/DATA/geodata/TRUE/wc2.1_country/ETH_wc2.1_30s_bio.tif")
+area   <- rast("C:/DATA/geodata/spam/spam2017V1r1_SSA_gr_H_MAIZ_A.tif")
+yield  <- rast("C:/DATA/geodata/spam/spam2017V1r1_SSA_gr_H_MAIZ_R.tif")
+
+names(travel) <- c("traveltime_u5") ## travel time cities of 100k or more
+names(clm) <- gsub("wc2.1_30s_", "", names(clm))
+names(area) <- c("MAI_ARE") # SPAM maize area 2010
+names(yield)  <- c("MAI_YLD") # SPAM maize yield 2010
+
+comment(travel) <- "travel time to cities 100k or more"
+
+comment(clm)[1] <-"BIO1 = Annual Mean Temperature"
+comment(clm)[2] <-"BIO2 = Mean Diurnal Range (Mean of monthly (max temp - min temp))"
+comment(clm)[3] <-"BIO3 = Isothermality (BIO2/BIO7) (×100)"
+comment(clm)[4] <-"BIO4 = Temperature Seasonality (standard deviation ×100)"
+comment(clm)[5] <-"BIO5 = Max Temperature of Warmest Month"
+comment(clm)[6] <-"BIO6 = Min Temperature of Coldest Month"
+comment(clm)[7] <-"BIO7 = Temperature Annual Range (BIO5-BIO6)"
+comment(clm)[8] <-"BIO8 = Mean Temperature of Wettest Quarter"
+comment(clm)[9] <-"BIO9 = Mean Temperature of Driest Quarter"
+comment(clm)[10] <-"BIO10 = Mean Temperature of Warmest Quarter"
+comment(clm)[11] <-"BIO11 = Mean Temperature of Coldest Quarter"
+comment(clm)[12] <-"BIO12 = Annual Precipitation"
+comment(clm)[13] <-"BIO13 = Precipitation of Wettest Month"
+comment(clm)[14] <-"BIO14 = Precipitation of Driest Month"
+comment(clm)[15] <-"BIO15 = Precipitation Seasonality (Coefficient of Variation)"
+comment(clm)[16] <-"BIO16 = Precipitation of Wettest Quarter"
+comment(clm)[17] <-"BIO17 = Precipitation of Driest Quarter"
+comment(clm)[18] <-"BIO18 = Precipitation of Warmest Quarter"
+comment(clm)[19] <-"BIO19 = Precipitation of Coldest Quarter"
+
+#compareGeom(travel, clm, area, yield)
+# harmonize to ET boundaries and common resolution
+travel <- resample(travel, r)
+clm    <- resample(clm, r)
+area   <- resample(area, r)
+  freq(is.na(area))
+  area <- classify(area, cbind(NA,0)) 
+yield  <- resample(yield, r)
+  freq(is.na(yield))
+  yield <- classify(yield, cbind(NA,0)) 
+# check again 
+compareGeom(travel, clm, area, yield)
+
+
+```
+
+1) Can you use these co-variates with a RandomForest and TPS?
+
+```{r}
+library(terra)
+library(randomForest)
+
+#generate lat grid, lon grid: 
+latgrd <- longrd <- r
+latgrd[] <- yFromCell(latgrd, 1:ncell(latgrd))
+longrd[] <- xFromCell(longrd, 1:ncell(longrd))
+names(latgrd) <- c("latitude")
+names(longrd) <- c("longitude")
+
+rstack <- c(travel, clm, area, yield, latgrd, longrd)
+names(rstack)
+
+# create focal mean to extract from (as alternative to using buffers for extraction, which are not supported in terra)
+fm <- focalMat(r, d=0.18, type='circle', fillNA=FALSE)
+rstack2 <- focal(rstack, w=fm, fun="mean", na.policy="all", fillvalue=NA, # na.rm=TRUE,
+      expand=TRUE, silent=FALSE) #, filename="", overwrite=FALSE) 
+
+
+# create vector for points data
+mypoints <- vect(p, geom=c("longitude", "latitude"), crs="+proj=longlat +datum=WGS84 +no_defs")
+plot(eth1, axes=TRUE)
+plot(mypoints, add=TRUE, pch=20, col="Red")
+head(mypoints)
+
+# extract values to dataset -- use a 20km buffer
+# do a focal sum of 20km radius  - this is about 0.18 of a decimal degree... 0.18*112=20.16
+fm <- focalMat(r, d=0.18, type='circle', fillNA=FALSE)
+rstack2 <- focal(rstack2, w=fm, fun="sum", na.policy="all", fillvalue=NA, na.rm=TRUE,
+      expand=TRUE, silent=FALSE) #, filename="", overwrite=FALSE) 
+# rstack2 <- focal(rstack, w=5, fun="mean", na.policy="all", fillvalue=NA, na.rm=TRUE,
+#       expand=TRUE, silent=FALSE) #, filename="", overwrite=FALSE) 
+
+#### !!!! 
+#### I need to figure out how to remove NAs from the SPAM data before the focal sum 
+
+extr1 <- extract(rstack, mypoints, method="bilinear")
+
+mypoints <- cbind(mypoints, extr1)
+head(mypoints)
+
+rf <- randomForest(spatial ~ traveltime_u5 + bio_1 + bio_2 + bio_3 + bio_4 + bio_5 + bio_6 + bio_7 + bio_8 + bio_9 + bio_10 + bio_11 + bio_12 + bio_13 + bio_14 + bio_15 + bio_16 + bio_17 + bio_18 + bio_19 + MAI_ARE + MAI_YLD + longitude + latitude, data=mypoints, na.rm=TRUE)
+# # missing values...
+# mypoints$MAI_ARE
+## evaluate
+rf
+varImpPlot(rf)
+
+# estimate more parsimonious specification
+rf <- randomForest(spatial ~ traveltime_u5 + bio_7 + bio_12 + bio_19 + MAI_ARE + longitude + latitude, data=mypoints, na.rm=TRUE)
+# evaluate 
+rf
+varImpPlot(rf)
+
+
+## evaluate
+rf
+varImpPlot(rf)
+partialPlot(rf, as.data.frame(mypoints), "traveltime_u5")
+
+## spatial prediction
+pred1 <- predict(rstack, rf, na.rm=TRUE)
+
+pred1 <- mask(pred1, eth1)
+plot(pred1)
+plot(mypoints, add=TRUE, pch=20, col="Red")
+
+```
+
+2) Can you interpolate the monthly prices and show the estimated price variation for one year?
+
+

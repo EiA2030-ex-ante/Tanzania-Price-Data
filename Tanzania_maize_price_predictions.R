@@ -381,7 +381,7 @@ varImpPlot(rf)
 
 # estimate more parsimonious specification
 rf <- randomForest(Maize.pkg.avg ~ traveltime_u5 + 
-                     bio_6 + bio_19 + 
+                     bio_6 + bio_7 + bio_19 + 
                      longitude + latitude, 
                    data=mypts, na.rm=TRUE)
 # evaluate 
@@ -395,6 +395,7 @@ pred1 <- predict(rstack, rf, na.rm=TRUE)
 pred1 <- mask(pred1, tza1)
 plot(pred1)
 plot(mypts, add=TRUE, pch=20, col="Red")
+#text(mypts, labels="Region", pos=1)
 
 
 

@@ -1,0 +1,59 @@
+region,market,latitude,longitude,obs
+Arusha,Arusha,-3.3696799,36.68808,288
+Bukoba,Bukoba,-1.3521,31.686081,16
+Dar es Salaam,Buguruni,-6.8383799,39.243591,24
+Dar es Salaam,Ilala,-6.8383799,39.243591,64
+Dar es Salaam,Ilala,-6.8294101,39.26289,112
+Dar es Salaam,Kinondoni,-6.7952299,39.240849,112
+Dar es Salaam,Kinondoni,-6.78407,39.270069,88
+Dar es Salaam,Tandale,-6.7952299,39.240849,32
+Dar es Salaam,Tandika,-10.8217,39.497051,40
+Dar es Salaam,Temeke,-6.8673,39.261639,24
+Dar es Salaam,Temeke,-6.8626599,39.263069,40
+Dar es Salaam,Temeke,-6.8509698,39.256721,88
+Dar es Salaam,Ubungo,-6.7936201,39.20966,8
+Dar es Salaam,ubungo,-6.7936201,39.20966,16
+Dodoma,Kabaigwa,-6.0811,36.64645,8
+Dodoma,Kibaigwa,-6.0811,36.64645,192
+Dodoma,Majengo,-6.1797099,35.741089,288
+Geita,Geita,-2.8991699,31.990339,40
+Iringa,Iringa,-7.5662098,35.074478,288
+Iringa,Manispaa,-5.0328202,32.820148,16
+Kagera,Bukoba,-1.3521,31.686081,280
+Katavi,Mpanda,-6.3429499,31.07299,184
+Katavi,Mpimbwe,-7.2442498,31.81782,40
+Kigoma,Kigoma,-4.51266,30.005051,208
+Kigoma,Ujiji,-4.90837,29.69203,24
+Kilimanjaro,Kilimanjaro,-3.07865,37.419861,16
+Kilimanjaro,Moshi,-3.34865,37.343521,216
+Lindi,Lindi,-9.39851,37.89975,224
+Lindi,Mkoa,-9.39851,37.89975,8
+Manyara,Babati,-4.2100601,35.749149,160
+Manyara,Manyara,-4.0727501,35.852169,112
+Mara,Mara,-1.64095,33.842159,8
+Mara,Musoma,-1.49982,33.8083,232
+Mbeya,Mbeya,-8.6131201,33.334202,144
+Morogoro,Morogoro,-7.08429,37.423271,288
+Moshi,Moshi,-3.34865,37.343521,24
+Mpanda,Mpanda,-6.3429499,31.07299,24
+Mtwara,Mtwara,-10.73611,38.796921,120
+Mtwara,Mtwara,-10.69903,39.021801,184
+Musoma,Mara,-1.64095,33.842159,8
+Mwanza,Mkoa,-9.39851,37.89975,16
+Mwanza,Mwanza,-2.51969,32.90144,288
+Njombe,Mkoa,-9.39851,37.89975,8
+Njombe,Njombe,-9.1210899,34.431679,168
+Nombe,Njombe,-9.1210899,34.431679,8
+Pwani,Pwani,-7.1160898,38.730011,40
+Rukwa,Sumbawanga,-7.9523902,31.62319,232
+Ruvuma,Songea,-10.67873,35.648361,256
+Shinyanga,Shinyanga,-3.7622199,33.23204,248
+Simiyu,Bariadi,-2.80355,33.986992,40
+Singida,Singida,-5.2902098,34.636742,72
+Songea,Ruvuma,-10.74972,35.66169,16
+Songwe,Songwe,-8.2769403,32.86174,16
+Sumbawanga,Rukwa,-7.7511301,30.94879,24
+Sumbawanga,Sumbawanga,-7.9523902,31.62319,48
+Tabora,Manispaa,-5.0328202,32.820148,16
+Tabora,Tabora,-5.19138,32.50806,264
+Tanga,Tanga,-5.2021298,38.227551,288
