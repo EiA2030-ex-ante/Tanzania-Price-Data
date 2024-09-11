@@ -1,0 +1,916 @@
+---
+title: "Price Volatility Measures Tanzania"
+format:
+  html:
+    toc: true         
+    toc-title: "Contents"  
+    toc-location: "right"   
+    toc-depth: 3      
+    embed-resources: true
+---
+
+```{r}
+#| label: load-packages
+#| include: false
+library(lubridate)
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(highcharter)
+library(wesanderson)
+library(RColorBrewer)
+library(MetBrewer)
+library(htmltools)
+library(rugarch)
+library(ggplot2)
+library(zoo)
+library(ggstatsplot)
+library(gridExtra)
+library(corrplot)
+library(ggplot2)
+library(forecast)
+
+setwd("H:/Tanzania Price data/Datasets")
+```
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+# Data Preparation
+
+```{r}
+#| echo: true
+prices <- fread("Tanzania_Price_Data_AllCrops_with_Coordinates4.csv")
+dim(prices)
+table(prices$Region)
+```
+
+```{r}
+# Convert to date format
+prices$Date <- lubridate::mdy(prices$Date)
+```
+
+```{r}
+setnames(prices, old = "Maize..min.price.", new = "mai.price.min")
+setnames(prices, old = "Rice..min.price.", new = "ric.price.min")
+setnames(prices, old = "Sorghum..min.price.", new = "sor.price.min")
+setnames(prices, old = "Bulrush.Millet..min.price.", new = "bul.price.min")
+setnames(prices, old = "Finger.Millet..min.price.", new = "fin.price.min")
+setnames(prices, old = "Wheat..min.price.", new = "whe.price.min")
+setnames(prices, old = "Beans..min.price.", new = "bea.price.min")
+setnames(prices, old = "Irish.Potatoes..min.price.", new = "pot.price.min")
+setnames(prices, old = "Maize..max.price.", new = "mai.price.max")
+setnames(prices, old = "Rice..max.price.", new = "ric.price.max")
+setnames(prices, old = "Sorghum..max.price.", new = "sor.price.max")
+setnames(prices, old = "Bulrush.Millet..max.price.", new = "bul.price.max")
+setnames(prices, old = "Finger.Millet..max.price.", new = "fin.price.max")
+setnames(prices, old = "Wheat..max.price.", new = "whe.price.max")
+setnames(prices, old = "Beans..max.price.", new = "bea.price.max")
+setnames(prices, old = "Irish.Potatoes..max.price.", new = "pot.price.max")
+```
+
+```{r}
+#convert prices to numeric 
+prices$mai.price.min <- as.numeric(prices$mai.price.min)
+prices$ric.price.min <- as.numeric(prices$ric.price.min)
+prices$sor.price.min <- as.numeric(prices$sor.price.min)
+prices$bul.price.min <- as.numeric(prices$bul.price.min)
+prices$fin.price.min <- as.numeric(prices$fin.price.min)
+prices$whe.price.min <- as.numeric(prices$whe.price.min)
+prices$bea.price.min <- as.numeric(prices$bea.price.min)
+prices$pot.price.min <- as.numeric(prices$pot.price.min)
+
+prices$mai.price.max <- as.numeric(prices$mai.price.max)
+prices$ric.price.max <- as.numeric(prices$ric.price.max)
+prices$sor.price.max <- as.numeric(prices$sor.price.max)
+prices$bul.price.max <- as.numeric(prices$bul.price.max)
+prices$fin.price.max <- as.numeric(prices$fin.price.max)
+prices$whe.price.max <- as.numeric(prices$whe.price.max)
+prices$bea.price.max <- as.numeric(prices$bea.price.max)
+prices$pot.price.max <- as.numeric(prices$pot.price.max)
+```
+
+```{r}
+# convert to price per kg
+prices$mai.price.min <- prices$mai.price.min/100
+prices$ric.price.min <- prices$ric.price.min/100
+prices$sor.price.min <- prices$sor.price.min/100
+prices$bul.price.min <- prices$bul.price.min/100
+prices$fin.price.min <- prices$fin.price.min/100
+prices$whe.price.min <- prices$whe.price.min/100
+prices$bea.price.min <- prices$bea.price.min/100
+prices$pot.price.min <- prices$pot.price.min/100
+
+prices$mai.price.max <- prices$mai.price.max/100
+prices$ric.price.max <- prices$ric.price.max/100
+prices$sor.price.max <- prices$sor.price.max/100
+prices$bul.price.max <- prices$bul.price.max/100
+prices$fin.price.max <- prices$fin.price.max/100
+prices$whe.price.max <- prices$whe.price.max/100
+prices$bea.price.max <- prices$bea.price.max/100
+prices$pot.price.max <- prices$pot.price.max/100
+```
+
+```{r}
+# calculate average of min and max
+prices$mai.price <- (prices$mai.price.min + prices$mai.price.max) / 2
+prices$ric.price <- (prices$ric.price.min + prices$ric.price.max) / 2
+prices$sor.price <- (prices$sor.price.min + prices$sor.price.max) / 2
+prices$bul.price <- (prices$bul.price.min + prices$bul.price.max) / 2
+prices$fin.price <- (prices$fin.price.min + prices$fin.price.max) / 2
+prices$whe.price <- (prices$whe.price.min + prices$whe.price.max) / 2
+prices$bea.price <- (prices$bea.price.min + prices$bea.price.max) / 2
+prices$pot.price <- (prices$pot.price.min + prices$pot.price.max) / 2
+```
+
+```{r}
+#We can add dates by using the year and the month names
+prices$Day   <- day(prices$Date)
+prices$Month <- month(prices$Date)
+prices$Year  <- year(prices$Date)
+
+#Also include weeks 
+prices$Week  <- week(prices$Date)
+```
+
+```{r}
+# drop unneccessary columns
+prices <- prices[,!c("mai.price.min", "mai.price.max",
+                     "ric.price.min", "ric.price.max",
+                     "sor.price.min", "sor.price.max",
+                     "bul.price.min", "bul.price.max",
+                     "fin.price.min", "fin.price.max",
+                     "whe.price.min", "whe.price.max", 
+                     "bea.price.min", "bea.price.max", 
+                     "pot.price.min", "pot.price.max")]
+```
+
+```{r}
+# calculate Weekly mean prices by market 
+prices.weekly <- prices[, .(mai.price = mean(mai.price, na.rm = TRUE), 
+                             ric.price = mean(ric.price, na.rm = TRUE), 
+                             sor.price = mean(sor.price, na.rm = TRUE), 
+                             bul.price = mean(bul.price, na.rm = TRUE),
+                             fin.price = mean(fin.price, na.rm = TRUE), 
+                             whe.price = mean(whe.price, na.rm = TRUE), 
+                             bea.price = mean(bea.price, na.rm = TRUE), 
+                             pot.price = mean(pot.price, na.rm = TRUE)), 
+                         by=.(Region, Market, Week, Month, Year, Latitude, Longitude)]
+```
+
+```{r}
+# reshape to long fomart
+prices.weekly.long <- melt(prices.weekly, id.vars=c('Region', 'Market', 'Week', 'Month', 'Year', 'Latitude', 'Longitude'),)
+
+# rename columns
+setnames(prices.weekly.long, old="variable", new="Crop")
+setnames(prices.weekly.long, old="value", new="pkg")
+```
+
+```{r}
+# replace crop names
+prices.weekly.long[Crop == "mai.price", Crop := "Maize"]
+prices.weekly.long[Crop == "ric.price", Crop := "Rice"]
+prices.weekly.long[Crop == "sor.price", Crop := "Sorghum"]
+prices.weekly.long[Crop == "bul.price", Crop := "B.Millet"]
+prices.weekly.long[Crop == "fin.price", Crop := "F.Millet"]
+prices.weekly.long[Crop == "whe.price", Crop := "Wheat"]
+prices.weekly.long[Crop == "bea.price", Crop := "Beans"]
+prices.weekly.long[Crop == "pot.price", Crop := "Potato"]
+
+# Reset the factor levels to updated levels
+prices.weekly.long[, Crop := factor(Crop)]
+# Check the unique values again
+unique(prices.weekly.long$Crop)
+
+# replace NaN with NAs in the price observations
+prices.weekly.long[is.nan(pkg), pkg := NA]
+# Remove observations with missing observations
+prices.weekly.long <- na.omit(prices.weekly.long)
+
+head(prices.weekly.long)
+```
+
+# Outlier Detection
+
+```{r}
+summary_by_crop <- prices.weekly.long %>%
+  group_by(Crop) %>%
+  summarize(
+    Mean_pkg = mean(pkg),
+    Median_pkg = median(pkg),
+    Min_pkg = min(pkg),
+    Max_pkg = max(pkg),
+    SD_pkg = sd(pkg),
+    IQR_pkg = IQR(pkg),
+    N_pkg = n()
+  )
+
+print(summary_by_crop)
+```
+
+```{r}
+# Box plot
+ggplot(prices.weekly.long, aes(x = Crop, y = pkg)) +
+  geom_boxplot()
+```
+
+```{r}
+# extract the values of the potential outliers based on the IQR criterion using the boxplot.stats()$out function:
+# Initialize an empty list to store indices of outliers for each crop
+outlier_indices <- list()
+
+# Loop through each crop to find outlier indices
+for(crop in unique(prices.weekly.long$Crop)) {
+  # Filter for the current crop and convert to numeric
+  crop_data <- prices.weekly.long$pkg[prices.weekly.long$Crop == crop]
+  
+  # Calculate the boxplot statistics and extract the outliers
+  outliers <- boxplot.stats(crop_data)$out
+  
+  if (length(outliers) > 0) {
+    indices <- which(prices.weekly.long$Crop == crop & prices.weekly.long$pkg %in% outliers)
+    outlier_indices[[crop]] <- indices
+  }
+}
+
+all_outlier_indices <- unlist(outlier_indices)
+```
+
+```{r}
+# Display rows with outliers
+outlier_rows <- prices.weekly.long[all_outlier_indices, ]
+print(outlier_rows)
+```
+
+```{r}
+# count of outliers per crop
+table(outlier_rows$Crop)
+```
+
+# Price Trend Analysis and Volatility Measures
+
+## 1. Aggregate Prices By Region
+
+```{r}
+# Filter for a few crops
+data_subset <- prices.weekly.long %>%
+  filter(Crop %in% c("Maize", "Rice", "Sorghum", "B.Millet", "F.Millet", "Wheat", "Beans", "Potato"))
+
+# Aggregate by Region, Crop, week, Month, Year: mean(pkg) across markets
+region_aggregated <- data_subset[, .(
+  pkg = mean(pkg, na.rm = TRUE)
+), by = .(Region, Crop, Week, Month, Year)]
+
+#Calculate relative prices based on the initial value per Region-Crop
+region_aggregated <- region_aggregated %>%
+  group_by(Region, Crop) %>%
+  arrange(Year, Month, Week) %>% 
+  mutate(relative_pkg = (pkg / first(pkg)) * 100) %>%
+  ungroup()
+
+region_aggregated <- as.data.table(region_aggregated)
+region_aggregated
+
+# Create plots for each region
+plots <- region_aggregated[, .(
+  plot = list(
+    hchart(.SD, "line", hcaes(x = paste(Year, Week, sep = "-"), y = relative_pkg, group = Crop), width = 375, height = 500) %>%
+      hc_title(text = paste(Region)) %>%
+      hc_xAxis(title = list(text = "Year-Week"), tickInterval = 50) %>% 
+      hc_yAxis(title = list(text = "Relative Price (Initial = 100)"), opposite = FALSE) %>%
+      hc_tooltip(shared = TRUE) %>%
+      hc_legend(enabled = TRUE) %>%
+      hc_add_theme(hc_theme_flat()) %>%
+      hc_colors(as.vector(brewer.pal("Accent", n = 8))) %>%
+      hc_plotOptions(series = list(marker = list(radius = 2, opacity = 0.5)))
+  )
+), by = Region]
+
+# Create a list of HTML elements
+plot_list_html <- lapply(plots$plot, function(p) {
+  div(p, style = "width: 375px; height: 500px; float: left; margin: 10px;")
+})
+
+num_cols <- 2
+
+# Create rows
+row_divs <- split(plot_list_html, ceiling(seq_along(plot_list_html) / num_cols)) %>%
+  lapply(function(row) {
+    div(row, style = "clear: both;")
+  })
+
+container <- div(row_divs)
+
+htmltools::browsable(container)
+```
+
+## Volatility Measures by Region
+
+```{r}
+calculateVolatilityMeasures <- function(pkg) {
+  
+  pkg <- na.omit(pkg)
+  
+  if (length(pkg) < 2) {
+    return(tibble(CV = NA,
+                  CCV = NA,
+                  SDD = NA,
+                  GARCH_Volatility = NA,
+                  Demeaned_Volatility = NA,
+                  Detrended_Volatility = NA,
+                  N_Week_CV = NA))
+  }
+  
+  # Coefficient of Variation (CV)
+  cv <- sd(pkg)/mean(pkg)
+  
+  # Corrected Coefficient of Variation (CCV)
+  trend_model <- lm(pkg ~ seq_along(pkg))
+  R2 <- summary(trend_model)$r.squared
+  ccv <- cv * (1 - R2)
+  
+  # Standard Deviation of the Logarithm of Prices in Differences (SDD)
+  log_diff <- diff(log(pkg))
+  sdd <- sd(log_diff)
+  
+  # Demeaned Volatility
+  demeaned_prices <- pkg - mean(pkg)
+  demeaned_volatility <- sd(demeaned_prices)
+  
+  # Detrended Volatility
+  detrended_volatility <- sd(resid(trend_model))
+  
+  # N-Week CV (4 weeks in this case)
+  rolling_sd <- rollapply(pkg,
+                          width = 5, FUN = sd,
+                          fill = NA, align = "right")
+  rolling_mean <- rollapply(pkg,
+                            width = 5, FUN = mean,
+                            fill = NA, align = "right")
+  n_week_cv <- mean(rolling_sd/rolling_mean,
+                     na.rm = TRUE)
+  
+  return(tibble(CV = cv,
+                CCV = ccv, SDD = sdd,
+                Demeaned_Volatility = demeaned_volatility,
+                Detrended_Volatility = detrended_volatility,
+                N_Week_CV = n_week_cv))
+}
+```
+
+```{r}
+# GARCH Volatility
+calculate_garch_volatility <- function(pkg) {
+  pkg <- na.omit(pkg)
+  if (length(pkg) < 2)
+    return(NA)
+  
+  garch_fit <- garchFit(~garch(1, 1), data = pkg,
+                        trace = FALSE)
+  volatility <- mean(garch_fit@sigma.t, na.rm = TRUE)
+  
+  return(volatility)
+}
+```
+
+```{r}
+# Apply all volatility measures to each Region and commodity
+volatility_measures <- region_aggregated %>%
+  group_by(Region, Crop, Month, Year) %>%
+  group_modify(~calculateVolatilityMeasures(.x$pkg)) %>%
+  ungroup()
+```
+
+```{r}
+volatility_measures_long <- volatility_measures %>%
+  pivot_longer(cols = -c(Region, Crop, Month, Year),
+               names_to = "Measure",
+               values_to = "Value") %>%
+  filter(Measure %in% c("CV", "CCV", "SDD", "N_Week_CV"))
+```
+
+```{r, fig.height=20, fig.width=10}
+# plots for each Crop
+plot_list <- volatility_measures_long %>%
+  split(.$Crop) %>%
+  lapply(function(df) {
+    ggplot(df, aes(x = Region, y = Value, fill = Measure)) +
+      geom_bar(stat = "identity", position = "dodge") +
+      ggtitle(paste("Volatility Measures for", unique(df$Crop))) +
+      scale_fill_manual(values = brewer.pal("Set1", n = length(unique(df$Measure)))) +
+      ylab("Value") + xlab("Commodity") +
+      theme_minimal() +
+      theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12)
+      )
+  })
+
+grid.arrange(grobs = plot_list, ncol = 1)
+```
+
+```{r}
+# Define regions
+selected_regions <- c("Arusha", "Dar es Salaam", "Dodoma", "Kagera",  "Manyara", "Rukwa")
+
+# Filter data
+filtered_data <- volatility_measures_long %>%
+  filter(Region %in% selected_regions)
+
+# Create plot 
+plt_2 <- grouped_ggbetweenstats(
+  data = filtered_data,
+  x = Region, 
+  y = Value,
+  grouping.var = Measure,
+  centrality.type = "np",
+  bf.message = FALSE,
+  pairwise.display = "none",
+  xlab = "Market",
+  ylab = "Value", 
+  plot.type = "bar",
+  theme = ggthemes::theme_few() +
+    theme(
+      axis.title.x = element_text(size = 18),   
+      axis.title.y = element_text(size = 18),   
+      axis.text.x = element_text(size = 16),    
+      axis.text.y = element_text(size = 16),    
+      legend.text = element_text(size = 16),    
+      legend.title = element_text(size = 18),   
+      plot.title = element_text(size = 18)      
+    ),
+  plotgrid.args = list(ncol = 1),
+  show.legend = TRUE
+)
+```
+
+```{r fig.width=14, fig.height=14}
+plt_2
+```
+
+```{r}
+#| include: false
+# Define the desired regions
+selected_regions2 <- c("Katavi", "Mtwara", "Tabora", "Tanga", "Iringa", "Kigoma")
+
+# Filter data
+filtered_data2 <- volatility_measures_long %>%
+  filter(Region %in% selected_regions2)
+
+# Create the plot
+plt_3 <- grouped_ggbetweenstats(data = filtered_data2,
+                               x = Region, y = Value,
+                               grouping.var = Measure,
+                               centrality.type = "np",
+                               bf.message = FALSE,
+                               pairwise.display = "none",
+                               xlab = "Market",
+                               ylab = "Value", plot.type = "bar",
+                               theme = ggthemes::theme_few() +
+    theme(
+      axis.title.x = element_text(size = 18),   # X-axis label
+      axis.title.y = element_text(size = 18),   # Y-axis label
+      axis.text.x = element_text(size = 16),    # X-axis text (region names)
+      axis.text.y = element_text(size = 16),    # Y-axis text (values)
+      legend.text = element_text(size = 16),    # Legend text
+      legend.title = element_text(size = 18),   # Legend title
+      plot.title = element_text(size = 18)      # Plot title
+    ),
+  plotgrid.args = list(ncol = 1),
+  show.legend = TRUE
+)
+```
+
+```{r fig.width=15, fig.height=14}
+plt_3
+```
+
+```{r}
+#| include: false
+# Define the desired regions
+selected_regions3 <- c("Morogoro", "Mwanza", "Mara", "Ruvuma", "Shinyanga", "Kilimanjaro", "Mbeya")
+
+# Filter data
+filtered_data3 <- volatility_measures_long %>%
+  filter(Region %in% selected_regions3)
+
+# Create plot
+plt_4 <- grouped_ggbetweenstats(data = filtered_data3,
+                               x = Region, y = Value,
+                               grouping.var = Measure,
+                               centrality.type = "np",
+                               bf.message = FALSE,
+                               pairwise.display = "none",
+                               xlab = "Market",
+                               ylab = "Value", plot.type = "bar",
+                               theme = ggthemes::theme_few() +
+    theme(
+      axis.title.x = element_text(size = 18),   
+      axis.title.y = element_text(size = 18),   
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16),    
+      legend.text = element_text(size = 16),    
+      legend.title = element_text(size = 18),   
+      plot.title = element_text(size = 18)
+    ),
+  plotgrid.args = list(ncol = 1),
+  show.legend = TRUE
+)
+```
+
+```{r fig.width=14, fig.height=14}
+plt_4
+```
+
+```{r}
+#| include: false
+# Define the desired regions
+selected_regions4 <- c("Njombe", "Lindi", "Singida", "Pwani", "Simiyu", "Geita", "Songwe")
+
+# Filter data
+filtered_data4 <- volatility_measures_long %>%
+  filter(Region %in% selected_regions4)
+
+# Create plot
+plt_5 <- grouped_ggbetweenstats(data = filtered_data4,
+                               x = Region, y = Value,
+                               grouping.var = Measure,
+                               centrality.type = "np",
+                               bf.message = FALSE,
+                               pairwise.display = "none",
+                               xlab = "Market",
+                               ylab = "Value", plot.type = "bar",
+                               theme = ggthemes::theme_few() +
+    theme(
+      axis.title.x = element_text(size = 18),   
+      axis.title.y = element_text(size = 18),   
+      axis.text.x = element_text(size = 16),    
+      axis.text.y = element_text(size = 16),    
+      legend.text = element_text(size = 16),    
+      legend.title = element_text(size = 18),   
+      plot.title = element_text(size = 18)      
+    ),
+  plotgrid.args = list(ncol = 1),
+  show.legend = TRUE
+)
+```
+
+```{r fig.width=14, fig.height=14}
+plt_5
+```
+
+## 2. Price Trend Analysis by Market
+
+```{r}
+#Price Trend Analysis by Market and Commodity
+
+# There are two markets named Majengo, We have to distinguish them
+# Create a new column for the updated Market names
+prices.weekly.long[, Market_Region := paste(Market, Region, sep = "-")]
+
+# updated dataset
+head(prices.weekly.long)
+
+# Filter for a few crops
+data_subset2 <- prices.weekly.long %>%
+  filter(Crop %in% c("Maize", "Rice", "Sorghum", "B.Millet", "F.Millet", "Wheat", "Beans", "Potato"))
+
+#Calculate relative prices based on the initial value per Market-Crop
+data_subset2 <- data_subset2 %>%
+  group_by(Market, Crop) %>%
+  arrange(Year, Month, Week) %>% 
+  mutate(relative_pkg = (pkg / first(pkg)) * 100) %>%
+  ungroup()
+
+data_subset2 <- as.data.table(data_subset2)
+
+# plots for each Market
+plots <- data_subset2[, .(
+  plot = list(
+    hchart(.SD, "line", hcaes(x = paste(Year, Week, sep = "-"), y = relative_pkg, group = Crop), width = 375, height = 500) %>%
+      hc_title(text = paste(Market_Region)) %>%
+      hc_xAxis(title = list(text = "Year-Week")) %>% 
+      hc_yAxis(title = list(text = "Relative Price (Initial = 100)"), opposite = FALSE) %>%
+      hc_tooltip(shared = TRUE) %>%
+      hc_legend(enabled = TRUE) %>%
+      hc_add_theme(hc_theme_flat()) %>%
+      hc_colors(as.vector(brewer.pal("Accent", n = 8))) %>%
+      hc_plotOptions(series = list(marker = list(radius = 2, opacity = 0.5)))
+  )
+), by = Market_Region]
+
+plot_list_html <- lapply(plots$plot, function(p) {
+  div(p, style = "width: 375px; height: 500px; float: left; margin: 10px;")
+})
+
+num_cols <- 2
+
+# Create rows
+row_divs <- split(plot_list_html, ceiling(seq_along(plot_list_html) / num_cols)) %>%
+  lapply(function(row) {
+    div(row, style = "clear: both;")
+  })
+
+container <- div(row_divs)
+
+htmltools::browsable(container)
+```
+
+## Volatility Measures by Market
+
+```{r}
+# Apply all volatility measures to each Market and commodity
+volatility_measures2 <- data_subset2 %>%
+  group_by(Market_Region, Crop, Month, Year) %>%
+  group_modify(~calculateVolatilityMeasures(.x$pkg)) %>%
+  ungroup()
+
+# Reshape the data for plotting
+volatility_measures_long2 <- volatility_measures2 %>%
+  pivot_longer(cols = -c(Market_Region, Crop, Year, Month),
+               names_to = "Measure",
+               values_to = "Value") %>%
+  filter(Measure %in% c("CV", "CCV", "SDD", "N_Week_CV"))
+
+
+# Create individual plots for each crop
+plot_list <- lapply(unique(volatility_measures_long2$Crop), function(crop) {
+  ggplot(subset(volatility_measures_long2, Crop == crop), aes(x = Market_Region, y = Value, fill = Measure)) +
+    geom_bar(stat = "identity", position = "dodge") +
+    ggtitle(paste("Volatility Measures for", crop)) +
+    scale_fill_manual(values = brewer.pal("Set1", n = 4)) +
+    ylab("Value") + xlab("Market") +
+    coord_flip() +  
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(size = 8),
+      axis.text.y = element_text(size = 8),
+      plot.title = element_text(size = 14),
+      legend.position = "bottom"
+    )
+})
+
+# save each plot separately
+for (i in seq_along(plot_list)) {
+  ggsave(filename = paste0("volatility_measures_", unique
+                           (volatility_measures_long2$Crop)[i], ".png"),
+         plot = plot_list[[i]], width = 7, height = 8)
+}
+
+# Include saved plots
+library(knitr)
+include_graphics("volatility_measures_Maize.png")
+include_graphics("volatility_measures_Beans.png")
+include_graphics("volatility_measures_Rice.png")
+include_graphics("volatility_measures_Sorghum.png")
+include_graphics("volatility_measures_F.Millet.png")
+include_graphics("volatility_measures_B.Millet.png")
+include_graphics("volatility_measures_Wheat.png")
+include_graphics("volatility_measures_Potato.png")
+```
+
+```{r}
+unique(prices.weekly.long$Market_Region)
+```
+
+```{r}
+# Define markets
+selected_regions1 <- c("Namfua-Singida", "Kilombero-Arusha", "Mgandini-Tanga", "Nyankumbu-Geita", "Majengo-Katavi", "Igawilo-Mbeya", "Ubungo-Dar es Salaam") 
+
+# Filter data
+filtered_data1 <- volatility_measures_long2 %>%
+  filter(Market_Region %in% selected_regions1)
+
+# Create plot
+plt_1 <- grouped_ggbetweenstats(data = filtered_data1,
+                                x = Market_Region, y = Value,
+                                grouping.var = Measure,
+                                centrality.type = "np",
+                                bf.message = FALSE,
+                                pairwise.display = "none",
+                                xlab = "Market_Region",
+                                ylab = "Value", plot.type = "bar",
+                                theme = ggthemes::theme_few(),
+                                plotgrid.args = list(ncol = 1),
+                                show.legend = TRUE) 
+
+```
+
+```{r fig.width=14, fig.height=14}
+plt_1
+```
+
+```{r}
+#| include: false
+# Define markets
+selected_regions2 <- c("Tabora-Tabora", "Tanga-Tanga", "Kinondoni-Dar es Salaam", "Ilala-Dar es Salaam", "Iringa-Iringa", "Kigoma-Kigoma", "Morogoro-Morogoro", "Mwanza-Mwanza", "Musoma-Mara")
+
+# Filter data
+filtered_data2 <- volatility_measures_long2 %>%
+  filter(Market_Region %in% selected_regions2)
+
+# Create plot
+plt_2 <- grouped_ggbetweenstats(data = filtered_data2,
+                                x = Market_Region, y = Value,
+                                grouping.var = Measure,
+                                centrality.type = "np",
+                                bf.message = FALSE,
+                                pairwise.display = "none",
+                                xlab = "Market_Region",
+                                ylab = "Value", plot.type = "bar",
+                                theme = ggthemes::theme_few(),
+                                plotgrid.args = list(ncol = 1),
+                                show.legend = TRUE) 
+```
+
+```{r fig.width=14, fig.height=14}
+plt_2
+```
+
+```{r}
+#| include: false
+# Define markets
+selected_regions3 <- c("Songea-Ruvuma", "Shinyanga-Shinyanga", "Moshi-Kilimanjaro", "Mbeya-Mbeya", "Njombe-Njombe", "Lindi-Lindi", "Manyara-Manyara", "Tandika-Dar es Salaam", "Buguruni-Dar es Salaam")
+
+# Filter data
+filtered_data3 <- volatility_measures_long2 %>%
+  filter(Market_Region %in% selected_regions3)
+
+# Create plot
+plt_3 <- grouped_ggbetweenstats(data = filtered_data3,
+                                x = Market_Region, y = Value,
+                                grouping.var = Measure,
+                                centrality.type = "np",
+                                bf.message = FALSE,
+                                pairwise.display = "none",
+                                xlab = "Market_Region",
+                                ylab = "Value", plot.type = "bar",
+                                theme = ggthemes::theme_few(),
+                                plotgrid.args = list(ncol = 1),
+                                show.legend = TRUE) 
+```
+
+```{r fig.width=14, fig.height=14}
+plt_3
+```
+
+```{r}
+#| include: false
+# Define markets
+selected_regions4 <- c("Tandale-Dar es Salaam", "Singida-Singida", "Pwani-Pwani", "Bariadi-Simiyu", "Mpimbwe-Katavi", "Geita-Geita", "Songwe-Songwe", "Mwananyamala-Dar es Salaam")
+
+# Filter data
+filtered_data4 <- volatility_measures_long2 %>%
+  filter(Market_Region %in% selected_regions4)
+
+# Create plot
+plt_4 <- grouped_ggbetweenstats(data = filtered_data4,
+                                x = Market_Region, y = Value,
+                                grouping.var = Measure,
+                                centrality.type = "np",
+                                bf.message = FALSE,
+                                pairwise.display = "none",
+                                xlab = "Market_Region",
+                                ylab = "Value", plot.type = "bar",
+                                theme = ggthemes::theme_few(),
+                                plotgrid.args = list(ncol = 1),
+                                show.legend = TRUE) 
+```
+
+```{r fig.width=14, fig.height=14}
+plt_4
+```
+
+```{r}
+#| include: false
+# Define markets
+selected_regions5 <- c("Arusha-Arusha", "Temeke-Dar es Salaam", "Majengo-Dodoma", "Kibaigwa-Dodoma", "Bukoba-Kagera", "Babati-Manyara", "Sumbawanga-Rukwa", "Mpanda-Katavi", "Mtwara-Mtwara")
+
+# Filter data
+filtered_data5 <- volatility_measures_long2 %>%
+  filter(Market_Region %in% selected_regions5)
+
+# Create plot
+plt_5 <- grouped_ggbetweenstats(data = filtered_data5,
+                                x = Market_Region, y = Value,
+                                grouping.var = Measure,
+                                centrality.type = "np",
+                                bf.message = FALSE,
+                                pairwise.display = "none",
+                                xlab = "Market_Region",
+                                ylab = "Value", plot.type = "bar",
+                                theme = ggthemes::theme_few(),
+                                plotgrid.args = list(ncol = 1),
+                                show.legend = TRUE) 
+```
+
+```{r fig.width=14, fig.height=14}
+plt_5
+```
+
+# Price Trends For all Commodities Together
+
+```{r}
+all_trends <- region_aggregated %>%
+  group_by(Region, Year, Month) %>%
+  summarize(mean_pkg = mean(pkg, na.rm = TRUE), .groups = 'drop')
+
+all_trends <- as.data.table(all_trends)
+
+# Create plots for each region
+plots <- all_trends[, .(
+  plot = list(
+    hchart(.SD, "line", hcaes(x = interaction(Year, Month), y = mean_pkg), width = 375, height = 500) %>%
+      hc_title(text = paste(Region)) %>%
+      hc_xAxis(title = list(text = "Time")) %>% 
+      hc_yAxis(title = list(text = "Average Price")) %>%
+      hc_tooltip(shared = TRUE) %>%
+      hc_legend(enabled = TRUE) %>%
+      hc_add_theme(hc_theme_flat()) %>%
+      hc_colors(as.vector(brewer.pal("Set1", n = 1))) %>%
+      hc_plotOptions(series = list(marker = list(radius = 2, opacity = 0.5)))
+  )
+), by = Region]
+
+plot_list_html <- lapply(plots$plot, function(p) {
+  div(p, style = "width: 375px; height: 500px; float: left; margin: 10px;")
+})
+
+num_cols <- 2
+
+row_divs <- split(plot_list_html, ceiling(seq_along(plot_list_html) / num_cols)) %>%
+  lapply(function(row) {
+    div(row, style = "clear: both;")
+  })
+
+container <- div(row_divs)
+
+htmltools::browsable(container)
+```
+
+# **Decomposing Temporal Patterns in Prices**
+
+## Seasonal + random components
+
+```{r}
+# Aggregate by Region, Crop, week, Month, Year: mean(pkg) across markets
+region_aggregated <- prices.weekly.long[, .(
+  pkg = mean(pkg, na.rm = TRUE)
+), by = .(Region, Crop, Week, Month, Year)]
+
+# list to store the decomposition results
+decomposition_results <- list()
+
+# unique combinations of Region and Crop
+unique_combinations <- unique(region_aggregated %>% select(Region, Crop))
+
+# Loop through each combination of Region and Crop
+for (i in 1:nrow(unique_combinations)) {
+  region <- unique_combinations$Region[i]
+  crop <- unique_combinations$Crop[i]
+  
+  # Filter data for the current Region and Crop
+  region_crop_data <- region_aggregated %>%
+    filter(Region == region, Crop == crop) %>%
+    arrange(Year, Month, Week)
+  
+  # Aggregate by Month
+  monthly_data <- region_crop_data %>%
+    group_by(Year, Month) %>%
+    summarize(pkg = mean(pkg, na.rm = TRUE), .groups = 'drop')
+  
+  # Create a time series object
+  pkg_ts <- ts(monthly_data$pkg, start=c(min(monthly_data$Year), min(monthly_data$Month)), frequency=12)
+  
+  # Check if there are enough data points for decomposition
+  if (length(pkg_ts) >= 24) {  # At least 2 years of monthly data
+    # decomposition
+    decomp <- decompose(pkg_ts)
+    
+    # Subtract the trend from the observed data  t remain with seasonal + random components
+    seasonal_random <- decomp$x - decomp$trend
+    
+    # Store results
+    decomposition_results[[paste(region, crop, sep = "-")]] <- list(
+      observed = decomp$x,
+      trend = decomp$trend,
+      seasonal = decomp$seasonal,
+      random = decomp$random,
+      seasonal_random = seasonal_random
+    )
+    #plot(decomp, main = paste("Decomposition for", region, crop))
+    plot(seasonal_random, main = paste("Seasonal + Random Components for", region, crop))
+    
+  } else {
+    # In cases where the time series is too short
+    cat("Skipping Region:", region, "Crop:", crop, "- Not enough data\n")
+    decomposition_results[[paste(region, crop, sep = "-")]] <- NA
+  }
+}
+```
+
+# GARCH Volatility

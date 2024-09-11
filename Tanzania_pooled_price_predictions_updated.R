@@ -49,7 +49,7 @@ unique(prices[Region=="Mara",.(Market, Latitude, Longitude)])
 unique(prices[Region=="Ruvuma",.(Market, Latitude, Longitude)])
 unique(prices[Region=="Shinyanga",.(Market, Latitude, Longitude)])
 unique(prices[Region=="Kilimanjaro",.(Market, Latitude, Longitude)])
-unique(prices[Region=="Mbeya",.(Market, Latitude, Longitude)])
+unique(prices[Region=="Mbeya", .(Market, Latitude, Longitude)])
 unique(prices[Region=="Katavi",.(Market, Latitude, Longitude)])
 unique(prices[Region=="Njombe",.(Market, Latitude, Longitude)])
 unique(prices[Region=="Lindi",.(Market, Latitude, Longitude)])
@@ -77,9 +77,7 @@ setnames(prices, old = "Wheat..max.price.", new = "whe.price.max")
 setnames(prices, old = "Beans..max.price.", new = "bea.price.max")
 setnames(prices, old = "Irish.Potatoes..max.price.", new = "pot.price.max")
 
-
 sapply(prices, class)
-
 
 #convert prices to numeric 
 prices$mai.price.min <- as.numeric(prices$mai.price.min)
@@ -165,17 +163,13 @@ prices.monthly <- prices[, .(mai.price = mean(mai.price, na.rm = TRUE),
        by=.(Region, Market, Month, Year, Latitude, Longitude)]
 
 
-
 # reshape to long (so that prices for different commodities can be simultaneously estimated)
 prices.monthly 
 prices.monthly.long <- melt(prices.monthly, id.vars=c('Region', 'Market', 'Month', 'Year', 'Latitude', 'Longitude'),)
 
-
-
 # rename columns
 setnames(prices.monthly.long, old="variable", new="Crop")
 setnames(prices.monthly.long, old="value", new="pkg")
-
 
 # replace crop names
 prices.monthly.long[Crop == "mai.price", Crop := "Maize"]
@@ -187,12 +181,13 @@ prices.monthly.long[Crop == "whe.price", Crop := "Wheat"]
 prices.monthly.long[Crop == "bea.price", Crop := "Beans"]
 prices.monthly.long[Crop == "pot.price", Crop := "Potato"]
 
+#prices.monthly.long <- prices.monthly.long %>%
+#  filter(Crop != "Potato")
 
 # Reset the factor levels to updated levels
 prices.monthly.long[, Crop := factor(Crop)]
 # Check the unique values again
 unique(prices.monthly.long$Crop)
-
 
 # generate dummies to use in place of factors (for later spatial predictions, which are struggling with factors)
 prices.monthly.long[, maize   := ifelse(Crop == "Maize",1,0)]
@@ -203,7 +198,6 @@ prices.monthly.long[, fmillet := ifelse(Crop == "F.Millet",1,0)]
 prices.monthly.long[, wheat   := ifelse(Crop == "Wheat",1,0)]
 prices.monthly.long[, beans   := ifelse(Crop == "Beans",1,0)]
 prices.monthly.long[, potato  := ifelse(Crop == "Potato",1,0)]
-
 
 prices.monthly.long[, jan := ifelse(Month == 1  , 1, 0)]
 prices.monthly.long[, feb := ifelse(Month == 2  , 1, 0)]
@@ -219,11 +213,62 @@ prices.monthly.long[, nov := ifelse(Month == 11 , 1, 0)]
 prices.monthly.long[, dec := ifelse(Month == 12 , 1, 0)]
 
 
-
 # replace NaN with NAs in the price observations
 prices.monthly.long[is.nan(pkg), pkg := NA]
 # Remove observations with missing observations
 prices.monthly.long <- na.omit(prices.monthly.long)
+
+# Outliers detection------------------------------------------------------------------------------------ 
+# Summary of pkg for each Crop
+summary_by_crop <- prices.monthly.long %>%
+  group_by(Crop) %>%
+  summarize(
+    Mean_pkg = mean(pkg),
+    Median_pkg = median(pkg),
+    Min_pkg = min(pkg),
+    Max_pkg = max(pkg),
+    SD_pkg = sd(pkg),
+    IQR_pkg = IQR(pkg),
+    N_pkg = n(),
+    
+  )
+
+print(summary_by_crop)
+
+# Box plot
+ggplot(prices.monthly.long, aes(x = Crop, y = pkg)) +
+  geom_boxplot()
+
+# extract the values of the potential outliers based on the IQR criterion using the boxplot.stats()$out function:
+# Initialize an empty list to store indices of outliers for each crop
+outlier_indices <- list()
+
+# Loop through each crop to find outlier indices
+for(crop in unique(prices.monthly.long$Crop)) {
+  # Filter for the current crop and convert to numeric
+  crop_data <- prices.monthly.long$pkg[prices.monthly.long$Crop == crop]
+  
+  # Calculate the boxplot statistics and extract the outliers
+  outliers <- boxplot.stats(crop_data)$out
+  
+  # Find the indices of the outliers
+  if (length(outliers) > 0) {
+    indices <- which(prices.monthly.long$Crop == crop & prices.monthly.long$pkg %in% outliers)
+    outlier_indices[[crop]] <- indices
+  }
+}
+
+# Combine all outlier indices into a single vector
+all_outlier_indices <- unlist(outlier_indices)
+
+# Display rows with outliers
+outlier_rows <- prices.monthly.long[all_outlier_indices, ]
+print(outlier_rows)
+
+# count of outliers per crop
+table(outlier_rows$Crop)
+
+#-------------------------------------------------------------------------------------------------
 
 
 # bring in raster stack as predictors
@@ -529,7 +574,7 @@ levels(mypts$Crop)
 
 # Linear model price Prediction
 # Fit the linear model
-lm_model <- lm(pkg ~ maize + rice + sorghum + bmillet + fmillet + wheat + beans + potato +
+lm_model <- lm(pkg ~ maize + rice + sorghum + bmillet + fmillet + wheat + beans +
                  Month +
                  Year + 
                  ttcity_u5 + ttport_1 + 
@@ -540,7 +585,6 @@ lm_model <- lm(pkg ~ maize + rice + sorghum + bmillet + fmillet + wheat + beans 
                  Longitude + Latitude + 
                  rain.sum.lag,
                data = mypts)
-
 # Extract and print the coefficients
 summary(lm_model)
 
@@ -560,12 +604,13 @@ for(column in seq_along(mypts)){
 training_data <- mypts[mypts$Year %in% c(2021, 2022, 2023), ]
 # Check training data
 head(training_data)
+training_data <- as.data.frame(training_data)
 
 # Filter the data for validation (Jan 2024 - June 2024)
 validation_data <- mypts[mypts$Year == 2024, ]
 # Check validation data
 head(validation_data)
-
+validation_data <- as.data.frame(validation_data)
 
 ### Random Forest for generating variable of importance
 ### Tune The Forest
@@ -582,7 +627,7 @@ trf <- tuneRF(x=mypts_df[,1:ncol(mypts_df)], # Prediction variables
 ### Fit The Random Forest Model (1)
 #### Random Forest for generating variable of importance
 # Create the random forest model
-rf1 <- randomForest(pkg ~ maize + rice + sorghum + bmillet + fmillet + wheat + beans + potato +
+rf1 <- randomForest(pkg ~ maize + rice + sorghum + bmillet + fmillet + wheat + beans +
                       Month + 
                       Year +
                       ttcity_u5 + ttport_1 + 
@@ -623,13 +668,11 @@ rf1$importanceSD
 ### Fit The Random Forest Model (2)
 #### Estimate more parsimonious specification
 # Estimate more parsimonious specification
-rf <- randomForest(pkg ~ maize + rice + sorghum + bmillet + fmillet + wheat + beans + potato +
+rf <- randomForest(pkg ~ maize + rice + sorghum + bmillet + fmillet + wheat + beans +
                      Month +
                      Year + 
                      ttport_1 +
-                     bio_1 + bio_2 + bio_3 + bio_4 + bio_5 + bio_6 + 
-                     bio_7 + bio_8 + bio_9 + bio_10 + bio_11 + bio_12 + bio_13 + bio_14 + bio_15 +
-                     bio_16 + bio_17 + bio_18 + bio_19 + 
+                     bio_3 + bio_6 + bio_9 +  bio_12 + bio_18 + 
                      rain.sum.lag, 
                    data=training_data, na.rm=TRUE)
 
@@ -1671,8 +1714,7 @@ evaluate_models <- function(crop) {
                        bmillet + 
                        fmillet + 
                        wheat + 
-                       beans + 
-                       potato +
+                       beans +
                        Month + 
                        Year + 
                        ttport_1 + 
@@ -1703,8 +1745,8 @@ evaluate_models <- function(crop) {
 }
 
 # Apply the function to all crops
-crops <- unique(mypts$Crop)
-comparison_df <- do.call(rbind, lapply(crops, evaluate_models))
+crop <- unique(mypts$Crop)
+comparison_df <- do.call(rbind, lapply(crop, evaluate_models))
 
 print(comparison_df)
 #write.csv(comparison_df, "model_comparison_df.csv")
@@ -1715,7 +1757,5 @@ comparison_df_wide <- comparison_df %>%
          RMSE_Pooled = `RMSE_Pooled`,
          R_squared_Crop_Specific = `R_squared_Crop-Specific`,
          R_squared_Pooled = `R_squared_Pooled`)
+comparison_df_wide
 
-write.csv(comparison_df, "model_comparison_df.csv")
-
-print(comparison_df_wide)

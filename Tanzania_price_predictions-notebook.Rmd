@@ -40,6 +40,7 @@ library(stringr)
 library(fields)
 library(corrplot)
 library(ggplot2)
+library(tidyr)
 ```
 
 # Data
@@ -322,7 +323,9 @@ lines(tza1)
 
 ## Predict prices with coodinates only
 ```{r}
-rf <- randomForest(pkg ~ Longitude + Latitude , data=mypts)
+## Predict Maize prices with coodinates only
+maize_mypts <- mypts[mypts$Crop == "Maize", ]
+rf <- randomForest(pkg ~ Longitude + Latitude , data=maize_mypts)
 sp3 <- interpolate(r, rf, xyNames=c("Longitude", "Latitude"))
 sp3 <- mask(sp3, tza1)
 plot(sp3)
@@ -712,7 +715,6 @@ This calculates the RMSE of the tree in the Random Forest model that has the low
 ```{r}
 importance_metrics <- importance(rf1, type=1)  # %IncMSE
 impvar <- rownames(importance_metrics)[order(importance_metrics[, 1], decreasing=TRUE)]
-impvar
 # Get the top 20 variables
 top_20_vars <- impvar[1:20]
 top_20_vars
@@ -722,7 +724,6 @@ top_20_vars
 node_purity <- importance(rf1, type=2)  # IncNodePurity
 # Sort variables by importance (IncNodePurity)
 node_purity_sorted <- sort(node_purity[,1], decreasing = TRUE)
-node_purity_sorted
 # Select the top 20 important variables
 top_vars <- names(node_purity_sorted)[1:20]
 print(top_vars)
@@ -1517,9 +1518,9 @@ lean_season_data <- lean_season_data[complete.cases(lean_season_data[, 7:14]), ]
 
 ```{r}
 # Calculate correlation matrix for Post-Harvest season
-post_harvest_corr <- cor(post_harvest_data[, 3:14])
+post_harvest_corr <- cor(post_harvest_data[, 7:14])
 # Calculate correlation matrix for Lean Season
-lean_season_corr <- cor(lean_season_data[, 3:14])
+lean_season_corr <- cor(lean_season_data[, 7:14])
 ```
 
 ```{r}
@@ -1535,7 +1536,7 @@ corrplot(post_harvest_corr,
 
 # Add title to the plot
 title(main = "Post-Harvest Correlation Matrix", 
-      line = 4,                
+      line = 3,                
       cex.main = 0.9)
 ```
 
@@ -1552,305 +1553,95 @@ corrplot(lean_season_corr,
 
 # Add title to the plot
 title(main = "Lean Season Correlation Matrix", 
-      line = 4,                
+      line = 3,                
       cex.main = 0.9) 
 ```
 
 
-# Crop Specific Price Predictions 
-We are doing Crop Specific Price Predictions to determine which model performs better at prediction by comparing predictions r2 or rmse
-## Maize Price Prediction
+# Comparing Pooled Vs Crop Specific Price Predictions 
+We are comparing Crop Specific Price Predictions to determine which model performs better at prediction by comparing predictions r2 or rmse
+
+## Function to evaluate models for a specific crop
 ```{r}
-# Filter data for maize
-mypts_df2 <- as.data.frame(mypts)
-mypts_maize <- mypts_df2[mypts_df2$Crop == "Maize", ]
-unique(mypts_maize$Crop)
+evaluate_models <- function(crop) {
+  # Filter data for the specific crop
+  crop_data <- mypts[mypts$Crop == crop, ]
+  training_data_crop <- crop_data[crop_data$Year %in% c(2021, 2022, 2023), ]
+  validation_data_crop <- crop_data[crop_data$Year == 2024, ]
+  
+  # Filter all data for pooled model
+  training_data <- mypts[mypts$Year %in% c(2021, 2022, 2023), ]
+  validation_data <- mypts[mypts$Year == 2024, ]
+  
+  # Pooled Model
+  rf <- randomForest(pkg ~maize + 
+                       rice + 
+                       sorghum + 
+                       bmillet + 
+                       fmillet + 
+                       wheat + 
+                       beans + 
+                       potato +
+                       Month + Year + 
+                       ttport_1 + 
+                       bio_3 + bio_6  + bio_9 + bio_12 + bio_18 + 
+                       rain.sum.lag, 
+                     data=training_data, na.rm=TRUE)
+  
+  # Predictions for pooled model on specific crop data
+  pooled_pred_crop <- predict(object=rf, newdata = validation_data_crop)
+  
+  # Crop-Specific Model
+  rf_crop <- randomForest(pkg ~ Month + Year + ttport_1 + bio_3 + bio_6 + bio_9 + bio_12 + bio_18 + rain.sum.lag,
+                          data = training_data_crop, na.rm = TRUE)
+  
+  # Predictions for crop-specific model
+  predictions_crop <- predict(object=rf_crop, newdata = validation_data_crop)
+  
+  # Calculate performance metrics
+  rmse_pooled <- round(rmse(validation_data_crop$pkg, pooled_pred_crop), 2)
+  r2_pooled <- round(R2(validation_data_crop$pkg, pooled_pred_crop), 2)
+  rmse_crop <- round(rmse(validation_data_crop$pkg, predictions_crop), 2)
+  r2_crop <- round(R2(validation_data_crop$pkg, predictions_crop), 2)
+  
+  return(data.frame(Crop = crop,
+                    Model = c("Pooled", "Crop-Specific"),
+                    RMSE = c(rmse_pooled, rmse_crop),
+                    R_squared = c(r2_pooled, r2_crop)))
+}
 ```
 
 ```{r}
-# Harmonize the levels
-mypts_maize <- mypts_maize %>%
-  mutate(Crop = as.character(Crop)) %>%
-  mutate(Crop = factor(Crop))
-# check again
-unique(mypts_maize$Crop)
-mypts_maize <- vect(mypts_maize, geom=c("Longitude", "Latitude"), crs=crs(tza0), keepgeom=TRUE)
+# Apply the function to all crops
+crops <- unique(mypts$Crop)
+comparison_df <- do.call(rbind, lapply(crops, evaluate_models))
+comparison_df
 ```
 
 ```{r}
-# Training data for maize
-training_data_maize <- mypts_maize[mypts_maize$Year %in% c(2021, 2022, 2023), ]
-# Filter the data for validation (Jan 2024 - July 2024)
-validation_data_maize <- mypts_maize[mypts_maize$Year == 2024, ]
+write.csv(comparison_df, "model_comparison_df.csv")
 ```
 
 ```{r}
-# Fit the Random Forest Model
-rf_maize <- randomForest(pkg ~ Month + Year + ttport_1 + bio_3 + bio_6 + bio_9 + bio_12 + rain.sum.lag, 
-                         data = training_data_maize, 
-                         na.rm = TRUE)
-
-rf_maize
+comparison_df <- read.csv("model_comparison_df.csv")
+comparison_df_wide <- comparison_df %>%
+  pivot_wider(names_from = Model, values_from = c(RMSE, R_squared)) %>%
+  rename(
+    RMSE_Crop_Specific = `RMSE_Crop-Specific`,
+    RMSE_Pooled = `RMSE_Pooled`,
+    R_squared_Crop_Specific = `R_squared_Crop-Specific`,
+    R_squared_Pooled = `R_squared_Pooled`
+  ) %>%
+  group_by(Crop) %>%
+  summarize(
+    RMSE_Pooled = max(RMSE_Pooled, na.rm = TRUE),
+    RMSE_Crop_Specific = max(RMSE_Crop_Specific, na.rm = TRUE),
+    R_squared_Pooled = max(R_squared_Pooled, na.rm = TRUE),
+    R_squared_Crop_Specific = max(R_squared_Crop_Specific, na.rm = TRUE)
+  )
 ```
 
 ```{r}
-# evaluate
-varImpPlot(rf_maize)
+knitr::kable(comparison_df_wide, caption = "Model Comparison: R² and RMSE")
 ```
 
-### Prediction Evaluation Maize Only RF Model
-We predict the validation data using the rf model then calculate R^2 and RMSE
-```{r}
-pred_maize<-predict(object=rf_maize, newdata=validation_data_maize)
-actual_maize<-validation_data_maize$pkg
-result_maize<-data.frame(actual=actual_maize, predicted=pred_maize)
-```
-
-```{r}
-#Save predicted & observed yield
-write.csv(result_maize, "result_maize.csv")
-
-#reading result_maize.csv file (predicted vs observed)
-rslt_m <- read.csv("result_maize.csv", header=T)
-print(names(rslt_m))
-```
-
-```{r}
-#R-square predicting from rf_maize predicited vs observed 
-rf_maize.rmse<-round(sqrt(mean( (rslt_m$actual-rslt_m$predicted)^2 , na.rm = TRUE )),2)
-print(rf_maize.rmse)
-```
-
-```{r}
-#R-square
-rf_maize.r2<-round(summary(lm(actual~predicted, rslt_m))$r.squared,2)
-print(rf_maize.r2)
-```
-
-```{r}
-#R-square
-rf_maize.r2<-round(summary(lm(actual~predicted, rslt_m))$r.squared,2)
-print(rf_maize.r2)
-```
-
-```{r}
-range(actual_maize)
-```
-
-```{r}
-range(pred_maize, na.rm = TRUE)
-```
-
-```{r}
-#plotting predicted Vs observed
-ggplot(result_maize, aes(x=actual_maize, y=pred_maize), alpha=0.6) +
-  geom_point(colour = "blue", size = 1.4, alpha=0.6) +
-  ggtitle('Random Forest "Maize Prices in Tanzania"') +
-  scale_x_continuous("Observed Price (Tsh)",
-                     limits = c(0, 1500),
-                     breaks = seq(0, 1500, 500)) +
-  scale_y_continuous("Predicted Price (Tsh)",
-                     limits = c(0, 1500),
-                     breaks = seq(0, 1500, 500)) +
-  theme(axis.line = element_line(colour = "black"),
-        axis.text.y = element_text(size = 8, angle = 90, hjust = 0.5, vjust = 1),
-        axis.text.x = element_text(size = 8)) +
-  geom_abline(intercept = 0, slope = 1, linewidth = 0.5) +
-  geom_smooth(aes(x = actual, y = predicted), formula = y ~ x, method = "lm", se = FALSE, colour = "red", linetype = 2, size = 0.9) +
-  annotate("text", x = 400, y = 1500, label = paste("RMSE:", rf_maize.rmse)) +
-  annotate("text", x = 400, y = 1400, label = paste("R^2: ", rf_maize.r2), parse = TRUE)
-```
-
-## Beans Price Prediction
-```{r}
-# Filter data for Beans
-mypts_beans <- mypts_df2[mypts_df2$Crop == "Beans", ]
-unique(mypts_beans$Crop)
-```
-
-```{r}
-# Harmonize the levels
-mypts_beans <- mypts_beans %>%
-  mutate(Crop = as.character(Crop)) %>%
-  mutate(Crop = factor(Crop))
-# check again
-unique(mypts_beans$Crop)
-mypts_beans <- vect(mypts_beans, geom=c("Longitude", "Latitude"), crs=crs(tza0), keepgeom=TRUE)
-```
-
-```{r}
-# Training data for beans
-training_data_beans <- mypts_beans[mypts_beans$Year %in% c(2021, 2022, 2023), ]
-
-# Validation Data beans
-validation_data_beans <- mypts_beans[mypts_beans$Year == 2024, ]
-```
-
-```{r}
-# Fit the Random Forest Model
-rf_beans <- randomForest(pkg ~ Month + Year + ttport_1 + bio_3 + bio_6 + bio_9 + bio_12 + rain.sum.lag, 
-                         data = training_data_beans, 
-                         na.rm = TRUE)
-
-rf_beans
-```
-
-```{r}
-# evaluate
-varImpPlot(rf_beans)
-```
-
-### Prediction Evaluation Beans Only RF Model Using Validation data
-```{r}
-pred_beans<-predict(object=rf_beans, newdata=validation_data_beans)
-actual_beans<-validation_data_beans$pkg
-result_beans<-data.frame(actual=actual_beans, predicted=pred_beans)
-```
-
-```{r}
-#Save predicted & observed beans price
-write.csv(result_beans, "result_beans.csv")
-```
-
-```{r}
-#reading result_beans.csv file (predicted vs observed)
-rslt_b <- read.csv("result_beans.csv", header=T)
-print(names(rslt_b))
-```
-
-```{r}
-#R-square predicting from rf_beans predicited vs observed 
-rf_beans.rmse<-round(sqrt(mean( (rslt_b$actual-rslt_b$predicted)^2 , na.rm = TRUE )),2)
-print(rf_beans.rmse)
-```
-
-```{r}
-#R-square
-rf_beans.r2<-round(summary(lm(actual~predicted, rslt_b))$r.squared,2)
-print(rf_beans.r2)
-```
-
-```{r}
-range(actual_beans)
-```
-
-```{r}
-range(pred_beans)
-```
-
-```{r}
-#plotting predicted Vs observed Beans Prices
-ggplot(result_beans, aes(x=actual_beans, y=pred_beans), alpha=0.6) +
-  geom_point(colour = "blue", size = 1.4, alpha=0.6) +
-  ggtitle('Random Forest "Beans Prices in Tanzania"') +
-  scale_x_continuous("Observed Price (Tsh)",
-                     limits = c(0, 4000),
-                     breaks = seq(0, 4000, 1000)) +
-  scale_y_continuous("Predicted Price (Tsh)",
-                     limits = c(0, 4000),
-                     breaks = seq(0, 4000, 1000)) +
-  theme(axis.line = element_line(colour = "black"),
-        axis.text.y = element_text(size = 8, angle = 90, hjust = 0.5, vjust = 1),
-        axis.text.x = element_text(size = 8)) +
-  geom_abline(intercept = 0, slope = 1, linewidth = 0.5) +
-  geom_smooth(aes(x = actual, y = predicted), formula = y ~ x, method = "lm", se = FALSE, colour = "red", linetype = 2, size = 0.9) +
-  annotate("text", x = 1000, y = 3800, label = paste("RMSE:", rf_beans.rmse)) +
-  annotate("text", x = 1000, y = 3600, label = paste("R^2: ", rf_beans.r2), parse = TRUE)
-```
-
-## Rice Price Prediction
-```{r}
-# Filter data for Rice
-mypts_rice <- mypts_df2[mypts_df2$Crop == "Rice", ]
-unique(mypts_rice$Crop)
-```
-
-```{r}
-# Harmonize the levels
-mypts_rice <- mypts_rice %>%
-  mutate(Crop = as.character(Crop)) %>%
-  mutate(Crop = factor(Crop))
-# check again
-unique(mypts_rice$Crop)
-mypts_rice <- vect(mypts_rice, geom=c("Longitude", "Latitude"), crs=crs(tza0), keepgeom=TRUE)
-```
-
-```{r}
-# Training data for rice
-training_data_rice <- mypts_rice[mypts_rice$Year %in% c(2021, 2022, 2023), ]
-
-# Validation Data rice
-validation_data_rice <- mypts_rice[mypts_rice$Year == 2024, ]
-```
-
-```{r}
-# Fit the Random Forest Model
-rf_rice <- randomForest(pkg ~ Month + Year + ttport_1 + bio_3 + bio_6 + bio_9 + bio_12 + rain.sum.lag, 
-                         data = training_data_rice, 
-                         na.rm = TRUE)
-
-rf_rice
-```
-
-```{r}
-# evaluate
-varImpPlot(rf_rice)
-```
-
-### Prediction Evaluation Rice Only RF Model Using Validation data
-```{r}
-pred_rice<-predict(object=rf_rice, newdata=validation_data_rice)
-actual_rice<-validation_data_rice$pkg
-result_rice<-data.frame(actual=actual_rice, predicted=pred_rice)
-```
-
-```{r}
-#Save predicted & observed rice price
-write.csv(result_rice, "result_rice.csv")
-```
-
-```{r}
-#reading result_rice.csv file (predicted vs observed)
-rslt_r <- read.csv("result_rice.csv", header=T)
-print(names(rslt_r))
-```
-
-```{r}
-#R-square predicting from rf_rice predicited vs observed 
-rf_rice.rmse<-round(sqrt(mean( (rslt_r$actual-rslt_r$predicted)^2 , na.rm = TRUE )),2)
-print(rf_rice.rmse)
-```
-
-```{r}
-#R-square
-rf_rice.r2<-round(summary(lm(actual~predicted, rslt_r))$r.squared,2)
-print(rf_rice.r2)
-```
-
-```{r}
-range(actual_rice)
-```
-
-```{r}
-range(pred_rice)
-```
-
-```{r}
-#plotting predicted Vs observed Rice Prices
-ggplot(result_rice, aes(x=actual_rice, y=pred_rice), alpha=0.6) +
-  geom_point(colour = "blue", size = 1.4, alpha=0.6) +
-  ggtitle('Random Forest "Rice Prices in Tanzania"') +
-  scale_x_continuous("Observed Price (Tsh)",
-                     limits = c(0, 4000),
-                     breaks = seq(0, 4000, 1000)) +
-  scale_y_continuous("Predicted Price (Tsh)",
-                     limits = c(0, 4000),
-                     breaks = seq(0, 4000, 1000)) +
-  theme(axis.line = element_line(colour = "black"),
-        axis.text.y = element_text(size = 8, angle = 90, hjust = 0.5, vjust = 1),
-        axis.text.x = element_text(size = 8)) +
-  geom_abline(intercept = 0, slope = 1, linewidth = 0.5) +
-  geom_smooth(aes(x = actual, y = predicted), formula = y ~ x, method = "lm", se = FALSE, colour = "red", linetype = 2, size = 0.9) +
-  annotate("text", x = 1000, y = 3800, label = paste("RMSE:", rf_rice.rmse)) +
-  annotate("text", x = 1000, y = 3600, label = paste("R^2: ", rf_rice.r2), parse = TRUE)
-```
